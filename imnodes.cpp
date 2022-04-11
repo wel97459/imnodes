@@ -709,12 +709,12 @@ inline bool IsMiniMapHovered();
 
 inline void PushBoxSelectorState(
     ImVector<ImInteractionState>& interaction_stack,
-    const ImVec2&                 mouse_pos)
+    const ImVec2&                 mouse_pos_grid_space)
 {
     IM_ASSERT(interaction_stack.size() == 0);
 
     ImInteractionState state(ImNodesInteractionType_BoxSelector);
-    state.BoxSelector.GridSpaceRect.Min = mouse_pos;
+    state.BoxSelector.GridSpaceRect.Min = mouse_pos_grid_space;
 
     interaction_stack.push_back(state);
 }
@@ -770,7 +770,8 @@ void BeginCanvasInteraction(ImNodesEditorContext& editor)
     }
     else if (GImNodes->LeftMouseClicked)
     {
-        PushBoxSelectorState(editor.InteractionStack, GImNodes->MousePos);
+        PushBoxSelectorState(
+            editor.InteractionStack, ScreenSpaceToGridSpace(editor, GImNodes->MousePos));
     }
 }
 
