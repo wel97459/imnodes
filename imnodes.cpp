@@ -1645,7 +1645,7 @@ void DrawLinks(
         else
         {
             const ImPinData& start_pin =
-                ObjectPoolFindOrCreateObject(editor.Pins, state.SnappedLink.SnappedPinId);
+                ObjectPoolFindOrCreateObject(editor.Pins, state.SnappedLink.StartPinId);
             start_pos = start_pin.Pos;
             start_pin_type = start_pin.Type;
             end_pos = ObjectPoolFindOrCreateObject(editor.Pins, state.SnappedLink.SnappedPinId).Pos;
