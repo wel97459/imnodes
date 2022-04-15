@@ -562,40 +562,21 @@ inline void PushNodeState(ImVector<ImInteractionState>& interaction_stack)
     interaction_stack.push_back(state);
 }
 
-void BeginNodeSelection(ImNodesEditorContext& editor, const int node_idx)
+void AppendNodeSelection(ImNodesEditorContext& editor, const int node_idx)
 {
-    // If the node is not already contained in the selection, then we want only
-    // the interaction node to be selected, effective immediately.
-    //
-    // If the multiple selection modifier is active, we want to add this node
-    // to the current list of selected nodes.
-    //
-    // Otherwise, we want to allow for the possibility of multiple nodes to be
-    // moved at once.
-    if (!editor.SelectedNodeIndices.contains(node_idx))
-    {
-        PushNodeState(editor.InteractionStack);
+    editor.SelectedNodeIndices.push_back(node_idx);
 
-        editor.SelectedLinkIds.clear();
-        if (!GImNodes->MultipleSelectModifier)
-        {
-            editor.SelectedNodeIndices.clear();
-        }
-        editor.SelectedNodeIndices.push_back(node_idx);
+    // Ensure a clicked node gets rendered on top
+    ImVector<int>&   depth_stack = editor.NodeDepthOrder;
+    const int* const elem = depth_stack.find(node_idx);
+    IM_ASSERT(elem != depth_stack.end());
+    depth_stack.erase(elem);
+    depth_stack.push_back(node_idx);
+}
 
-        // Ensure that individually selected nodes get rendered on top
-        ImVector<int>&   depth_stack = editor.NodeDepthOrder;
-        const int* const elem = depth_stack.find(node_idx);
-        IM_ASSERT(elem != depth_stack.end());
-        depth_stack.erase(elem);
-        depth_stack.push_back(node_idx);
-    }
-    // Deselect a previously-selected node
-    else if (GImNodes->MultipleSelectModifier)
-    {
-        const int* const node_ptr = editor.SelectedNodeIndices.find(node_idx);
-        editor.SelectedNodeIndices.erase(node_ptr);
-    }
+void BeginNodeTranslation(ImNodesEditorContext& editor, const int node_idx)
+{
+    PushNodeState(editor.InteractionStack);
 
     // To support snapping of multiple nodes, we need to store the offset of
     // each node in the selection to the origin of the dragged node.
@@ -609,6 +590,44 @@ void BeginNodeSelection(ImNodesEditorContext& editor, const int node_idx)
         const int    node = editor.SelectedNodeIndices[idx];
         const ImVec2 node_origin = editor.Nodes.Pool[node].Origin - ref_origin;
         editor.SelectedNodeOffsets.push_back(node_origin);
+    }
+}
+
+void BeginNodeInteraction(ImNodesEditorContext& editor, const int node_idx)
+{
+    const int* const selected_node_idx_ptr = editor.SelectedNodeIndices.find(node_idx);
+
+    // Top-level node interactions are launched from here.
+
+    // The node is not yet selected.
+    // a) multiple select modifier on: append the node to the selection, and begin translating the
+    // node group b) no multiple select: clear the selection, append the node and start translating
+    // the node
+
+    // The node is already in the selection.
+    // a) multiple select modifier on: remove the node from the selection
+    // b) no multiple select: start translating the selected node group
+
+    if (selected_node_idx_ptr == editor.SelectedNodeIndices.end())
+    {
+        if (!GImNodes->MultipleSelectModifier)
+        {
+            editor.SelectedNodeIndices.resize(0);
+        }
+
+        AppendNodeSelection(editor, node_idx);
+        BeginNodeTranslation(editor, node_idx);
+    }
+    else
+    {
+        if (GImNodes->MultipleSelectModifier)
+        {
+            editor.SelectedNodeIndices.erase_unsorted(selected_node_idx_ptr);
+        }
+        else
+        {
+            BeginNodeTranslation(editor, node_idx);
+        }
     }
 }
 
@@ -2324,7 +2343,7 @@ void EndNodeEditor()
                 editor.InteractionStack.end(),
                 [](const ImInteractionState& state) -> bool {
                     return state.Type == ImNodesInteractionType_BoxSelector;
-                }) != editor.InteractionStack.end())
+                }) == editor.InteractionStack.end())
         {
             // Resolve which node is actually on top and being hovered using the depth stack.
             GImNodes->HoveredNodeIdx = ResolveHoveredNode(editor.NodeDepthOrder);
@@ -2383,7 +2402,7 @@ void EndNodeEditor()
 
         else if (GImNodes->LeftMouseClicked && GImNodes->HoveredNodeIdx.HasValue())
         {
-            BeginNodeSelection(editor, GImNodes->HoveredNodeIdx.Value());
+            BeginNodeInteraction(editor, GImNodes->HoveredNodeIdx.Value());
         }
         else if (
             GImNodes->LeftMouseClicked || GImNodes->LeftMouseReleased ||
