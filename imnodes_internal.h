@@ -23,7 +23,7 @@ extern ImNodesContext* GImNodes;
 
 typedef int ImNodesScope;
 typedef int ImNodesAttributeType;
-typedef int ImNodesUIState;
+typedef int ImNodesUIEventType;
 typedef int ImNodesClickInteractionType;
 typedef int ImNodesLinkCreationType;
 typedef int ImNodesInteractionType;
@@ -43,12 +43,12 @@ enum ImNodesAttributeType_
     ImNodesAttributeType_Output
 };
 
-enum ImNodesUIState_
+enum ImNodesUIEventType_
 {
-    ImNodesUIState_None = 0,
-    ImNodesUIState_LinkStarted = 1 << 0,
-    ImNodesUIState_LinkDropped = 1 << 1,
-    ImNodesUIState_LinkCreated = 1 << 2
+    ImNodesUIEventType_None,
+    ImNodesUIEventType_StartedLink,
+    ImNodesUIEventType_DroppedLink,
+    ImNodesUIEventType_NewLink
 };
 
 enum ImNodesLinkCreationType_
@@ -223,6 +223,7 @@ enum ImNodesInteractionType_
     ImNodesInteractionType_Link,
     ImNodesInteractionType_PartialLink,
     ImNodesInteractionType_SnappedLink,
+    ImNodesInteractionType_LinkCreatedOnSnap,
     ImNodesInteractionType_Node,
     ImNodesInteractionType_ImGuiItem,
     ImNodesInteractionType_None
@@ -240,6 +241,38 @@ struct ImInteractionState
     };
 
     ImInteractionState(const ImNodesInteractionType type) : Type(type) {}
+};
+
+struct ImStartedLinkEvent
+{
+    int StartPinId;
+};
+
+struct ImNewLinkEvent
+{
+    int  StartPinId;
+    int  EndPinId;
+    bool CreatedFromSnap;
+};
+
+struct ImDroppedLinkEvent
+{
+    int  StartPinId;
+    bool CreatedFromSnap;
+};
+
+struct ImUIEvent
+{
+    ImNodesUIEventType Type;
+
+    union
+    {
+        ImStartedLinkEvent StartedLink;
+        ImNewLinkEvent     NewLink;
+        ImDroppedLinkEvent DroppedLink;
+    };
+
+    ImUIEvent() : Type(ImNodesUIEventType_None) {}
 };
 
 struct ImNodesColElement
@@ -365,9 +398,7 @@ struct ImNodesContext
     ImOptionalIndex SnapLinkIdx;
 
     // Event helper state
-    // TODO: this should be a part of a state machine, and not a member of the global struct.
-    // Unclear what parts of the code this relates to.
-    int ImNodesUIState;
+    ImUIEvent UIEvent;
 
     int  ActiveAttributeId;
     bool ActiveAttribute;

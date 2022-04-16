@@ -662,12 +662,8 @@ inline void PushPartialLinkState(
     state.PartialLink.CreatedFromSnap = from_snap;
 
     interaction_stack.push_back(state);
-}
 
-void BeginLinkCreation(ImNodesEditorContext& editor, const int hovered_pin_idx)
-{
-    PushPartialLinkState(editor.InteractionStack, editor.Pins.Pool[hovered_pin_idx].Id, false);
-    GImNodes->ImNodesUIState |= ImNodesUIState_LinkStarted;
+    GImNodes->UIEvent.Type = ImNodesUIEventType_StartedLink;
 }
 
 void BeginLinkInteraction(
@@ -714,7 +710,8 @@ void BeginLinkInteraction(
             }
             else
             {
-                BeginLinkCreation(editor, pin_idx.Value());
+                PushPartialLinkState(
+                    editor.InteractionStack, editor.Pins.Pool[pin_idx.Value()].Id, false);
             }
         }
         else
@@ -759,6 +756,26 @@ inline void PushSnappedLinkState(
     state.SnappedLink.SnappedPinId = snapped_pin_id;
 
     interaction_stack.push_back(state);
+}
+
+inline void PushLinkCreatedOnSnapState(
+    ImVector<ImInteractionState>& interaction_stack,
+    const int                     start_pin_id,
+    const int                     snapped_pin_id)
+{
+    IM_ASSERT(interaction_stack.size() > 0);
+
+    ImInteractionState state(ImNodesInteractionType_LinkCreatedOnSnap);
+    state.SnappedLink.StartPinId = start_pin_id;
+    state.SnappedLink.SnappedPinId = snapped_pin_id;
+
+    interaction_stack.push_back(state);
+
+    ImUIEvent* event = &GImNodes->UIEvent;
+    event->Type = ImNodesUIEventType_NewLink;
+    event->NewLink.StartPinId = state.SnappedLink.StartPinId;
+    event->NewLink.EndPinId = state.SnappedLink.SnappedPinId;
+    event->NewLink.CreatedFromSnap = true;
 }
 
 inline void PushImGuiState(ImVector<ImInteractionState>& interaction_stack)
@@ -1035,8 +1052,6 @@ void InteractionStackUpdate(
         const int        start_pin_id = state.PartialLink.StartPinId;
         const ImPinData& start_pin = ObjectPoolFindOrCreateObject(editor.Pins, start_pin_id);
 
-        bool link_was_created = false;
-
         if (GImNodes->HoveredPinIdx.HasValue())
         {
             const ImPinData& hovered_pin = editor.Pins.Pool[GImNodes->HoveredPinIdx.Value()];
@@ -1049,27 +1064,29 @@ void InteractionStackUpdate(
 
             if (should_snap)
             {
-                PushSnappedLinkState(editor.InteractionStack, start_pin_id, hovered_pin.Id);
-
                 const bool link_creation_on_snap =
                     hovered_pin.Flags & ImNodesAttributeFlags_EnableLinkCreationOnSnap;
 
                 if (link_creation_on_snap)
                 {
-                    link_was_created = true;
-                    GImNodes->ImNodesUIState |= ImNodesUIState_LinkCreated;
+                    PushLinkCreatedOnSnapState(
+                        editor.InteractionStack, start_pin_id, hovered_pin.Id);
+                }
+                else
+                {
+                    PushSnappedLinkState(editor.InteractionStack, start_pin_id, hovered_pin.Id);
                 }
             }
         }
 
         if (GImNodes->LeftMouseReleased)
         {
-            editor.InteractionStack.pop_back();
+            ImUIEvent& event = GImNodes->UIEvent;
+            event.Type = ImNodesUIEventType_DroppedLink;
+            event.DroppedLink.StartPinId = state.PartialLink.StartPinId;
+            event.DroppedLink.CreatedFromSnap = state.PartialLink.CreatedFromSnap;
 
-            if (!link_was_created)
-            {
-                GImNodes->ImNodesUIState |= ImNodesUIState_LinkDropped;
-            }
+            editor.InteractionStack.pop_back();
         }
     }
     break;
@@ -1082,11 +1099,27 @@ void InteractionStackUpdate(
         if (snapping_pin_changed)
         {
             editor.InteractionStack.pop_back();
+        }
 
-            if (GImNodes->SnapLinkIdx.HasValue())
-            {
-                GImNodes->DeletedLinkIdx = GImNodes->SnapLinkIdx.Value();
-            }
+        if (GImNodes->LeftMouseReleased)
+        {
+            ImUIEvent* event = &GImNodes->UIEvent;
+            event->Type = ImNodesUIEventType_NewLink;
+            event->NewLink.StartPinId = state.SnappedLink.StartPinId;
+            event->NewLink.EndPinId = state.SnappedLink.SnappedPinId;
+            event->NewLink.CreatedFromSnap = false;
+
+            editor.InteractionStack.resize(0);
+        }
+    }
+    case ImNodesInteractionType_LinkCreatedOnSnap:
+    {
+        const bool snapping_pin_changed = !GImNodes->HoveredPinIdx.HasValue();
+
+        if (snapping_pin_changed)
+        {
+            GImNodes->DeletedLinkIdx = GImNodes->SnapLinkIdx.Value();
+            editor.InteractionStack.pop_back();
         }
 
         if (GImNodes->LeftMouseReleased)
@@ -2238,7 +2271,7 @@ void BeginNodeEditor()
 
     GImNodes->NodeIndicesOverlappingWithMouse.clear();
 
-    GImNodes->ImNodesUIState = ImNodesUIState_None;
+    GImNodes->UIEvent.Type = ImNodesUIEventType_None;
 
     GImNodes->MousePos = ImGui::GetIO().MousePos;
     GImNodes->LeftMouseClicked = ImGui::IsMouseClicked(0);
@@ -2397,7 +2430,10 @@ void EndNodeEditor()
 
         else if (GImNodes->LeftMouseClicked && GImNodes->HoveredPinIdx.HasValue())
         {
-            BeginLinkCreation(editor, GImNodes->HoveredPinIdx.Value());
+            PushPartialLinkState(
+                editor.InteractionStack,
+                editor.Pins.Pool[GImNodes->HoveredPinIdx.Value()].Id,
+                false);
         }
 
         else if (GImNodes->LeftMouseClicked && GImNodes->HoveredNodeIdx.HasValue())
@@ -2641,13 +2677,13 @@ void Link(const int id, const int start_attr_id, const int end_attr_id)
 
     ImNodesEditorContext& editor = EditorContextGet();
 
-    // Check if this link was created by the current link event
+    // Check if this link was created by the current link interaction
 
     if (editor.InteractionStack.size() > 0)
     {
         const ImInteractionState& state = editor.InteractionStack.back();
 
-        if (state.Type == ImNodesInteractionType_SnappedLink &&
+        if (state.Type == ImNodesInteractionType_LinkCreatedOnSnap &&
                 (state.SnappedLink.StartPinId == start_attr_id &&
                  state.SnappedLink.SnappedPinId == end_attr_id) ||
             (state.SnappedLink.StartPinId == end_attr_id &&
@@ -2993,13 +3029,10 @@ bool IsLinkStarted(int* const started_at_id)
     IM_ASSERT(GImNodes->CurrentScope == ImNodesScope_None);
     IM_ASSERT(started_at_id != NULL);
 
-    const bool is_started = (GImNodes->ImNodesUIState & ImNodesUIState_LinkStarted) != 0;
+    const bool is_started = ImNodesUIEventType_StartedLink == GImNodes->UIEvent.Type;
     if (is_started)
     {
-        const ImNodesEditorContext& editor = EditorContextGet();
-        IM_ASSERT(editor.InteractionStack.size() > 0);
-        IM_ASSERT(editor.InteractionStack.back().Type == ImNodesInteractionType_PartialLink);
-        *started_at_id = editor.InteractionStack.back().PartialLink.StartPinId;
+        *started_at_id = GImNodes->UIEvent.StartedLink.StartPinId;
     }
 
     return is_started;
@@ -3010,16 +3043,13 @@ bool IsLinkDropped(int* const started_at_id, const bool including_detached_links
     // Call this function after EndNodeEditor()!
     IM_ASSERT(GImNodes->CurrentScope == ImNodesScope_None);
 
-    const ImNodesEditorContext& editor = EditorContextGet();
-    const ImInteractionState&   state = editor.InteractionStack.back();
-
-    IM_ASSERT(state.Type == ImNodesInteractionType_PartialLink);
-    const bool link_dropped = (GImNodes->ImNodesUIState & ImNodesUIState_LinkDropped) != 0 &&
-                              (including_detached_links || !state.PartialLink.CreatedFromSnap);
+    const bool link_dropped =
+        (ImNodesUIEventType_DroppedLink == GImNodes->UIEvent.Type) &&
+        (including_detached_links || !GImNodes->UIEvent.DroppedLink.CreatedFromSnap);
 
     if (link_dropped && started_at_id)
     {
-        *started_at_id = state.PartialLink.StartPinId;
+        *started_at_id = GImNodes->UIEvent.DroppedLink.StartPinId;
     }
 
     return link_dropped;
@@ -3034,34 +3064,19 @@ bool IsLinkCreated(
     IM_ASSERT(started_at_pin_id != NULL);
     IM_ASSERT(ended_at_pin_id != NULL);
 
-    const bool is_created = (GImNodes->ImNodesUIState & ImNodesUIState_LinkCreated) != 0;
+    const bool is_created = ImNodesUIEventType_NewLink == GImNodes->UIEvent.Type;
 
     if (is_created)
     {
         ImNodesEditorContext& editor = EditorContextGet(); // TODO: const
-        IM_ASSERT(editor.InteractionStack.size() > 0);
-        const ImInteractionState& state = editor.InteractionStack.back();
-        IM_ASSERT(
-            state.Type == ImNodesInteractionType_PartialLink ||
-            state.Type == ImNodesInteractionType_SnappedLink);
+        const ImUIEvent&      event = GImNodes->UIEvent;
 
-        if (state.Type == ImNodesInteractionType_PartialLink)
-        {
-            *started_at_pin_id =
-                ObjectPoolFindOrCreateObject(editor.Pins, state.PartialLink.StartPinId).Id;
-            *ended_at_pin_id = editor.Pins.Pool[GImNodes->HoveredPinIdx.Value()].Id;
-        }
-        else
-        {
-            *started_at_pin_id =
-                ObjectPoolFindOrCreateObject(editor.Pins, state.SnappedLink.StartPinId).Id;
-            *ended_at_pin_id =
-                ObjectPoolFindOrCreateObject(editor.Pins, state.SnappedLink.SnappedPinId).Id;
-        }
+        *started_at_pin_id = ObjectPoolFindOrCreateObject(editor.Pins, event.NewLink.StartPinId).Id;
+        *ended_at_pin_id = ObjectPoolFindOrCreateObject(editor.Pins, event.NewLink.EndPinId).Id;
 
         if (created_from_snap)
         {
-            *created_from_snap = (state.Type == ImNodesInteractionType_SnappedLink);
+            *created_from_snap = event.NewLink.CreatedFromSnap;
         }
     }
 
@@ -3081,42 +3096,25 @@ bool IsLinkCreated(
     IM_ASSERT(ended_at_node_id != NULL);
     IM_ASSERT(ended_at_pin_id != NULL);
 
-    const bool is_created = (GImNodes->ImNodesUIState & ImNodesUIState_LinkCreated) != 0;
+    const bool is_created = ImNodesUIEventType_NewLink == GImNodes->UIEvent.Type;
 
     if (is_created)
     {
         ImNodesEditorContext& editor = EditorContextGet(); // TODO: const
-        IM_ASSERT(editor.InteractionStack.size() > 0);
-        const ImInteractionState& state = editor.InteractionStack.back();
-        IM_ASSERT(
-            state.Type == ImNodesInteractionType_PartialLink ||
-            state.Type == ImNodesInteractionType_SnappedLink);
+        const ImUIEvent&      event = GImNodes->UIEvent;
 
-        if (state.Type == ImNodesInteractionType_PartialLink)
-        {
-            const ImPinData& start_pin =
-                ObjectPoolFindOrCreateObject(editor.Pins, state.PartialLink.StartPinId);
-            const ImPinData& hovered_pin = editor.Pins.Pool[GImNodes->HoveredPinIdx.Value()];
-            *started_at_node_id = editor.Nodes.Pool[start_pin.ParentNodeIdx].Id;
-            *started_at_pin_id = start_pin.Id;
-            *ended_at_node_id = editor.Nodes.Pool[hovered_pin.ParentNodeIdx].Id;
-            *ended_at_pin_id = hovered_pin.Id;
-        }
-        else
-        {
-            const ImPinData& start_pin =
-                ObjectPoolFindOrCreateObject(editor.Pins, state.SnappedLink.StartPinId);
-            const ImPinData& snapped_pin =
-                ObjectPoolFindOrCreateObject(editor.Pins, state.SnappedLink.SnappedPinId);
-            *started_at_node_id = editor.Nodes.Pool[start_pin.ParentNodeIdx].Id;
-            *started_at_pin_id = start_pin.Id;
-            *ended_at_node_id = editor.Nodes.Pool[snapped_pin.ParentNodeIdx].Id;
-            *ended_at_pin_id = snapped_pin.Id;
-        }
+        const ImPinData& start_pin =
+            ObjectPoolFindOrCreateObject(editor.Pins, event.NewLink.StartPinId);
+        const ImPinData& end_pin =
+            ObjectPoolFindOrCreateObject(editor.Pins, event.NewLink.EndPinId);
+        *started_at_node_id = editor.Nodes.Pool[start_pin.ParentNodeIdx].Id;
+        *started_at_pin_id = start_pin.Id;
+        *ended_at_node_id = editor.Nodes.Pool[end_pin.ParentNodeIdx].Id;
+        *ended_at_pin_id = end_pin.Id;
 
         if (created_from_snap)
         {
-            *created_from_snap = (state.Type == ImNodesInteractionType_SnappedLink);
+            *created_from_snap = event.NewLink.CreatedFromSnap;
         }
     }
 
