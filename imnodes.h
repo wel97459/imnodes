@@ -17,6 +17,20 @@ typedef int ImNodesStyleFlags;      // -> enum ImNodesStyleFlags_
 typedef int ImNodesPinShape;        // -> enum ImNodesPinShape_
 typedef int ImNodesAttributeFlags;  // -> enum ImNodesAttributeFlags_
 typedef int ImNodesMiniMapLocation; // -> enum ImNodesMiniMapLocation_
+typedef int ImNodesAttributeType;
+
+enum ImNodesAttributeType_
+{
+    ImNodesAttributeType_None,
+    ImNodesAttributeType_InputLeft,
+    ImNodesAttributeType_InputLeftMultLink,
+    ImNodesAttributeType_InputRight,
+    ImNodesAttributeType_InputRightMultLink,
+    ImNodesAttributeType_OutputLeft,
+    ImNodesAttributeType_OutputLeftMultLink,
+    ImNodesAttributeType_OutputRight,
+    ImNodesAttributeType_OutputRightMultLink
+};
 
 enum ImNodesCol_
 {
@@ -74,11 +88,11 @@ enum ImNodesStyleVar_
 
 enum ImNodesStyleFlags_
 {
-    ImNodesStyleFlags_None = 0,
-    ImNodesStyleFlags_NodeOutline = 1 << 0,
-    ImNodesStyleFlags_GridLines = 1 << 2,
-    ImNodesStyleFlags_GridLinesPrimary = 1 << 3,
-    ImNodesStyleFlags_GridSnapping = 1 << 4
+    ImNodesStyleFlags_None = 0x0,
+    ImNodesStyleFlags_NodeOutline = 0x1,
+    ImNodesStyleFlags_GridLines = 0x2,
+    ImNodesStyleFlags_GridLinesPrimary = 0x4,
+    ImNodesStyleFlags_GridSnapping = 0x8
 };
 
 enum ImNodesPinShape_
@@ -94,17 +108,17 @@ enum ImNodesPinShape_
 // This enum controls the way the attribute pins behave.
 enum ImNodesAttributeFlags_
 {
-    ImNodesAttributeFlags_None = 0,
+    ImNodesAttributeFlags_None = 0x0,
     // Allow detaching a link by left-clicking and dragging the link at a pin it is connected to.
     // NOTE: the user has to actually delete the link for this to work. A deleted link can be
     // detected by calling IsLinkDestroyed() after EndNodeEditor().
-    ImNodesAttributeFlags_EnableLinkDetachWithDragClick = 1 << 0,
+    ImNodesAttributeFlags_EnableLinkDetachWithDragClick = 0x1,
     // Visual snapping of an in progress link will trigger IsLink Created/Destroyed events. Allows
     // for previewing the creation of a link while dragging it across attributes. See here for demo:
     // https://github.com/Nelarius/imnodes/issues/41#issuecomment-647132113 NOTE: the user has to
     // actually delete the link for this to work. A deleted link can be detected by calling
     // IsLinkDestroyed() after EndNodeEditor().
-    ImNodesAttributeFlags_EnableLinkCreationOnSnap = 1 << 1
+    ImNodesAttributeFlags_EnableLinkCreationOnSnap = 0x2
 };
 
 struct ImNodesIO
@@ -311,6 +325,18 @@ void EndInputAttribute();
 // Create an output attribute block. The pin is rendered on the right side.
 void BeginOutputAttribute(int id, ImNodesPinShape shape = ImNodesPinShape_CircleFilled);
 void EndOutputAttribute();
+
+//Create a pin with lots of contorl over the attributes.
+void BeginPin(const int id, const ImNodesAttributeType type,  const ImNodesPinShape shape);
+void BeginPinWithColor(
+    const int id, 
+    const ImNodesAttributeType type,  
+    const ImNodesPinShape shape,
+    const ImU32                color_bg,
+    const ImU32                color_hov
+    );
+
+void EndPin();
 // Create a static attribute block. A static attribute has no pin, and therefore can't be linked to
 // anything. However, you can still use IsAttributeActive() and IsAnyAttributeActive() to check for
 // attribute activity.
@@ -403,6 +429,12 @@ bool IsLinkStarted(int* started_at_attribute_id);
 // detaches a link and drops it.
 bool IsLinkDropped(int* started_at_attribute_id = NULL, bool including_detached_links = true);
 // Did the user finish creating a new link?
+bool IsLinkCreatedRaw(
+    int*  started_at_node_id,
+    int*  started_at_pin_id,
+    int*  ended_at_node_id,
+    int*  ended_at_pin_id,
+    bool* created_from_snap = NULL);
 bool IsLinkCreated(
     int*  started_at_attribute_id,
     int*  ended_at_attribute_id,
@@ -434,4 +466,5 @@ void SaveEditorStateToIniFile(const ImNodesEditorContext* editor, const char* fi
 
 void LoadCurrentEditorStateFromIniFile(const char* file_name);
 void LoadEditorStateFromIniFile(ImNodesEditorContext* editor, const char* file_name);
+void setSnapDifferentType(const bool v);
 } // namespace IMNODES_NAMESPACE

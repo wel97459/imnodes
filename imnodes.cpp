@@ -31,14 +31,14 @@
 #define sscanf sscanf_s
 #endif
 
-ImNodesContext* GImNodes = NULL;
 
+ImNodesContext* GImNodes = NULL;
 namespace IMNODES_NAMESPACE
 {
 namespace
 {
+static bool SnapDifferentType = true;
 // [SECTION] bezier curve helpers
-
 struct CubicBezier
 {
     ImVec2 P0, P1, P2, P3;
@@ -117,21 +117,61 @@ inline CubicBezier GetCubicBezier(
     ImVec2                     start,
     ImVec2                     end,
     const ImNodesAttributeType start_type,
+    const ImNodesAttributeType end_type,
     const float                line_segments_per_length)
 {
     IM_ASSERT(
-        (start_type == ImNodesAttributeType_Input) || (start_type == ImNodesAttributeType_Output));
-    if (start_type == ImNodesAttributeType_Input)
-    {
-        ImSwap(start, end);
-    }
+        start_type == ImNodesAttributeType_InputLeft ||
+        start_type == ImNodesAttributeType_InputLeftMultLink ||
+        start_type == ImNodesAttributeType_InputRight ||
+        start_type == ImNodesAttributeType_InputRightMultLink ||
+        start_type == ImNodesAttributeType_OutputLeft ||
+        start_type == ImNodesAttributeType_OutputLeftMultLink ||
+        start_type == ImNodesAttributeType_OutputRight ||
+        start_type == ImNodesAttributeType_OutputRightMultLink
+    );
+    IM_ASSERT(
+        start_type == ImNodesAttributeType_InputLeft ||
+        start_type == ImNodesAttributeType_InputLeftMultLink ||
+        start_type == ImNodesAttributeType_InputRight ||
+        start_type == ImNodesAttributeType_InputRightMultLink ||
+        start_type == ImNodesAttributeType_OutputLeft ||
+        start_type == ImNodesAttributeType_OutputLeftMultLink ||
+        start_type == ImNodesAttributeType_OutputRight ||
+        start_type == ImNodesAttributeType_OutputRightMultLink
+    );
 
     const float  link_length = ImSqrt(ImLengthSqr(end - start));
     const ImVec2 offset = ImVec2(0.25f * link_length, 0.f);
+
+    ImVec2 s_pos, e_pos;
+
+    if (
+        start_type == ImNodesAttributeType_InputRight || 
+        start_type == ImNodesAttributeType_InputRightMultLink || 
+        start_type == ImNodesAttributeType_OutputRight || 
+        start_type == ImNodesAttributeType_OutputRightMultLink
+    ){
+        s_pos = start + offset;
+    }else{
+        s_pos = start - offset;
+    }
+
+    if (
+        start_type == ImNodesAttributeType_InputLeft || 
+        start_type == ImNodesAttributeType_InputLeftMultLink || 
+        start_type == ImNodesAttributeType_OutputLeft|| 
+        start_type == ImNodesAttributeType_OutputLeftMultLink 
+    ){
+        e_pos = end + offset;
+    }else{
+        e_pos = end - offset;
+    }
+
     CubicBezier  cubic_bezier;
     cubic_bezier.P0 = start;
-    cubic_bezier.P1 = start + offset;
-    cubic_bezier.P2 = end - offset;
+    cubic_bezier.P1 = s_pos;
+    cubic_bezier.P2 = e_pos;
     cubic_bezier.P3 = end;
     cubic_bezier.NumSegments = ImMax(static_cast<int>(link_length * line_segments_per_length), 1);
     return cubic_bezier;
@@ -219,7 +259,8 @@ inline bool RectangleOverlapsLink(
     const ImRect&              rectangle,
     const ImVec2&              start,
     const ImVec2&              end,
-    const ImNodesAttributeType start_type)
+    const ImNodesAttributeType start_type
+    )
 {
     // First level: simple rejection test via rectangle overlap:
 
@@ -248,7 +289,7 @@ inline bool RectangleOverlapsLink(
         // link
 
         const CubicBezier cubic_bezier =
-            GetCubicBezier(start, end, start_type, GImNodes->Style.LinkLineSegmentsPerLength);
+            GetCubicBezier(start, end, start_type, ImNodesAttributeType_None, GImNodes->Style.LinkLineSegmentsPerLength);
         return RectangleOverlapsBezier(rectangle, cubic_bezier);
     }
 
@@ -551,10 +592,28 @@ ImVec2 GetScreenSpacePinCoordinates(
     const ImRect&              attribute_rect,
     const ImNodesAttributeType type)
 {
-    IM_ASSERT(type == ImNodesAttributeType_Input || type == ImNodesAttributeType_Output);
-    const float x = type == ImNodesAttributeType_Input
-                        ? (node_rect.Min.x - GImNodes->Style.PinOffset)
-                        : (node_rect.Max.x + GImNodes->Style.PinOffset);
+    IM_ASSERT(
+        type == ImNodesAttributeType_InputLeft || 
+        type == ImNodesAttributeType_InputLeftMultLink || 
+        type == ImNodesAttributeType_InputRight || 
+        type == ImNodesAttributeType_InputRightMultLink || 
+        type == ImNodesAttributeType_OutputLeft ||
+        type == ImNodesAttributeType_OutputLeftMultLink ||
+        type == ImNodesAttributeType_OutputRight ||
+        type == ImNodesAttributeType_OutputRightMultLink
+        );
+    float x;
+    if(
+        type == ImNodesAttributeType_InputLeft || 
+        type == ImNodesAttributeType_OutputLeft ||
+        type == ImNodesAttributeType_InputLeftMultLink || 
+        type == ImNodesAttributeType_OutputLeftMultLink)
+    {
+        x = node_rect.Min.x - GImNodes->Style.PinOffset;
+    }else{
+        x = (node_rect.Max.x + GImNodes->Style.PinOffset);
+    }
+
     return ImVec2(x, 0.5f * (attribute_rect.Min.y + attribute_rect.Max.y));
 }
 
@@ -913,7 +972,7 @@ bool ShouldLinkSnapToPin(
     }
 
     // The end pin must be of a different type
-    if (start_pin.Type == end_pin.Type)
+    if (start_pin.Type == end_pin.Type && SnapDifferentType)
     {
         return false;
     }
@@ -1005,6 +1064,17 @@ void ClickInteractionUpdate(ImNodesEditorContext& editor)
         const ImPinData& start_pin =
             editor.Pins.Pool[editor.ClickInteraction.LinkCreation.StartPinIdx];
 
+        const bool isInput = (
+            start_pin.Type == ImNodesAttributeType_InputLeft ||
+            start_pin.Type == ImNodesAttributeType_InputLeftMultLink ||
+            start_pin.Type == ImNodesAttributeType_InputRight ||
+            start_pin.Type == ImNodesAttributeType_InputRightMultLink);
+
+        if(isInput){
+            editor.ClickInteraction.Type = ImNodesClickInteractionType_None;
+            break;
+        }
+
         const ImOptionalIndex maybe_duplicate_link_idx =
             GImNodes->HoveredPinIdx.HasValue()
                 ? FindDuplicateLink(
@@ -1042,7 +1112,7 @@ void ClickInteractionUpdate(ImNodesEditorContext& editor)
                                    : GImNodes->MousePos;
 
         const CubicBezier cubic_bezier = GetCubicBezier(
-            start_pos, end_pos, start_pin.Type, GImNodes->Style.LinkLineSegmentsPerLength);
+            start_pos, end_pos, start_pin.Type, ImNodesAttributeType_None, GImNodes->Style.LinkLineSegmentsPerLength);
 #if IMGUI_VERSION_NUM < 18000
         GImNodes->CanvasDrawList->AddBezierCurve(
 #else
@@ -1052,7 +1122,7 @@ void ClickInteractionUpdate(ImNodesEditorContext& editor)
             cubic_bezier.P1,
             cubic_bezier.P2,
             cubic_bezier.P3,
-            GImNodes->Style.Colors[ImNodesCol_Link],
+            start_pin.ColorStyle.Background,
             GImNodes->Style.LinkThickness,
             cubic_bezier.NumSegments);
 
@@ -1270,7 +1340,7 @@ ImOptionalIndex ResolveHoveredLink(
         // rendering the links
 
         const CubicBezier cubic_bezier = GetCubicBezier(
-            start_pin.Pos, end_pin.Pos, start_pin.Type, GImNodes->Style.LinkLineSegmentsPerLength);
+            start_pin.Pos, end_pin.Pos, start_pin.Type, end_pin.Type, GImNodes->Style.LinkLineSegmentsPerLength);
 
         // The distance test
         {
@@ -1586,8 +1656,8 @@ void DrawLink(ImNodesEditorContext& editor, const int link_idx)
     const ImPinData&  end_pin = editor.Pins.Pool[link.EndPinIdx];
 
     const CubicBezier cubic_bezier = GetCubicBezier(
-        start_pin.Pos, end_pin.Pos, start_pin.Type, GImNodes->Style.LinkLineSegmentsPerLength);
-
+        start_pin.Pos, end_pin.Pos, start_pin.Type, end_pin.Type, GImNodes->Style.LinkLineSegmentsPerLength);
+        
     const bool link_hovered =
         GImNodes->HoveredLinkIdx == link_idx &&
         editor.ClickInteraction.Type != ImNodesClickInteractionType_BoxSelection;
@@ -1607,14 +1677,14 @@ void DrawLink(ImNodesEditorContext& editor, const int link_idx)
         return;
     }
 
-    ImU32 link_color = link.ColorStyle.Base;
+    ImU32 link_color = start_pin.ColorStyle.Background;
     if (editor.SelectedLinkIndices.contains(link_idx))
     {
-        link_color = link.ColorStyle.Selected;
+        link_color = start_pin.ColorStyle.Hovered;
     }
     else if (link_hovered)
     {
-        link_color = link.ColorStyle.Hovered;
+        link_color = start_pin.ColorStyle.Hovered;
     }
 
 #if IMGUI_VERSION_NUM < 18000
@@ -1659,6 +1729,39 @@ void BeginPinAttribute(
     pin.Flags = GImNodes->CurrentAttributeFlags;
     pin.ColorStyle.Background = GImNodes->Style.Colors[ImNodesCol_Pin];
     pin.ColorStyle.Hovered = GImNodes->Style.Colors[ImNodesCol_PinHovered];
+}
+
+void BeginPinAttributeWithColor(
+    const int                  id,
+    const ImNodesAttributeType type,
+    const ImNodesPinShape      shape,
+    const int                  node_idx,
+    const ImU32                color_bg,
+    const ImU32                color_hov
+    )
+{
+    // Make sure to call BeginNode() before calling
+    // BeginAttribute()
+    IM_ASSERT(GImNodes->CurrentScope == ImNodesScope_Node);
+    GImNodes->CurrentScope = ImNodesScope_Attribute;
+
+    ImGui::BeginGroup();
+    ImGui::PushID(id);
+
+    ImNodesEditorContext& editor = EditorContextGet();
+
+    GImNodes->CurrentAttributeId = id;
+
+    const int pin_idx = ObjectPoolFindOrCreateIndex(editor.Pins, id);
+    GImNodes->CurrentPinIdx = pin_idx;
+    ImPinData& pin = editor.Pins.Pool[pin_idx];
+    pin.Id = id;
+    pin.ParentNodeIdx = node_idx;
+    pin.Type = type;
+    pin.Shape = shape;
+    pin.Flags = GImNodes->CurrentAttributeFlags;
+    pin.ColorStyle.Background = color_bg;
+    pin.ColorStyle.Hovered = color_hov;
 }
 
 void EndPinAttribute()
@@ -1831,6 +1934,7 @@ static void MiniMapDrawLink(ImNodesEditorContext& editor, const int link_idx)
         ScreenSpaceToMiniMapSpace(editor, start_pin.Pos),
         ScreenSpaceToMiniMapSpace(editor, end_pin.Pos),
         start_pin.Type,
+        end_pin.Type,
         GImNodes->Style.LinkLineSegmentsPerLength / editor.MiniMapScaling);
 
     // It's possible for a link to be deleted in begin_link_interaction. A user
@@ -2531,17 +2635,35 @@ void EndNodeTitleBar()
 
 void BeginInputAttribute(const int id, const ImNodesPinShape shape)
 {
-    BeginPinAttribute(id, ImNodesAttributeType_Input, shape, GImNodes->CurrentNodeIdx);
+    BeginPinAttribute(id, ImNodesAttributeType_InputLeft, shape, GImNodes->CurrentNodeIdx);
 }
 
 void EndInputAttribute() { EndPinAttribute(); }
 
 void BeginOutputAttribute(const int id, const ImNodesPinShape shape)
 {
-    BeginPinAttribute(id, ImNodesAttributeType_Output, shape, GImNodes->CurrentNodeIdx);
+    BeginPinAttribute(id, ImNodesAttributeType_OutputRight, shape, GImNodes->CurrentNodeIdx);
+}
+
+void BeginPin(const int id, const ImNodesAttributeType type,  const ImNodesPinShape shape)
+{
+    BeginPinAttribute(id, type, shape, GImNodes->CurrentNodeIdx);
+}
+
+void BeginPinWithColor(
+    const int id, 
+    const ImNodesAttributeType type,  
+    const ImNodesPinShape shape,
+    const ImU32                color_bg,
+    const ImU32                color_hov
+    )
+{
+    BeginPinAttributeWithColor(id, type, shape, GImNodes->CurrentNodeIdx, color_bg, color_hov);
 }
 
 void EndOutputAttribute() { EndPinAttribute(); }
+
+void EndPin() { EndPinAttribute(); }
 
 void BeginStaticAttribute(const int id)
 {
@@ -2981,6 +3103,45 @@ bool IsLinkDropped(int* const started_at_id, const bool including_detached_links
     return link_dropped;
 }
 
+bool IsLinkCreatedRaw(
+    int*  started_at_node_id,
+    int*  started_at_pin_id,
+    int*  ended_at_node_id,
+    int*  ended_at_pin_id,
+    bool* created_from_snap)
+{
+    IM_ASSERT(GImNodes->CurrentScope == ImNodesScope_None);
+    IM_ASSERT(started_at_node_id != NULL);
+    IM_ASSERT(started_at_pin_id != NULL);
+    IM_ASSERT(ended_at_node_id != NULL);
+    IM_ASSERT(ended_at_pin_id != NULL);
+
+    const bool is_created = (GImNodes->ImNodesUIState & ImNodesUIState_LinkCreated) != 0;
+
+    if (is_created)
+    {
+        const ImNodesEditorContext& editor = EditorContextGet();
+        const int         start_idx = editor.ClickInteraction.LinkCreation.StartPinIdx;
+        const int         end_idx = editor.ClickInteraction.LinkCreation.EndPinIdx.Value();
+        const ImPinData&  start_pin = editor.Pins.Pool[start_idx];
+        const ImNodeData& start_node = editor.Nodes.Pool[start_pin.ParentNodeIdx];
+        const ImPinData&  end_pin = editor.Pins.Pool[end_idx];
+        const ImNodeData& end_node = editor.Nodes.Pool[end_pin.ParentNodeIdx];
+        *started_at_pin_id = start_pin.Id;
+        *started_at_node_id = start_node.Id;
+        *ended_at_pin_id = end_pin.Id;
+        *ended_at_node_id = end_node.Id;
+
+        if (created_from_snap)
+        {
+            *created_from_snap =
+                editor.ClickInteraction.Type == ImNodesClickInteractionType_LinkCreation;
+        }
+    }
+
+    return is_created;
+}
+
 bool IsLinkCreated(
     int* const  started_at_pin_id,
     int* const  ended_at_pin_id,
@@ -3000,7 +3161,7 @@ bool IsLinkCreated(
         const ImPinData& start_pin = editor.Pins.Pool[start_idx];
         const ImPinData& end_pin = editor.Pins.Pool[end_idx];
 
-        if (start_pin.Type == ImNodesAttributeType_Output)
+        if (start_pin.Type == ImNodesAttributeType_OutputRight)
         {
             *started_at_pin_id = start_pin.Id;
             *ended_at_pin_id = end_pin.Id;
@@ -3046,7 +3207,7 @@ bool IsLinkCreated(
         const ImPinData&  end_pin = editor.Pins.Pool[end_idx];
         const ImNodeData& end_node = editor.Nodes.Pool[end_pin.ParentNodeIdx];
 
-        if (start_pin.Type == ImNodesAttributeType_Output)
+        if (start_pin.Type == ImNodesAttributeType_OutputRight)
         {
             *started_at_pin_id = start_pin.Id;
             *started_at_node_id = start_node.Id;
@@ -3249,5 +3410,10 @@ void LoadEditorStateFromIniFile(ImNodesEditorContext* const editor, const char* 
 
     LoadEditorStateFromIniString(editor, file_data, data_size);
     ImGui::MemFree(file_data);
+}
+
+void setSnapDifferentType(const bool v)
+{
+    SnapDifferentType = v;
 }
 } // namespace IMNODES_NAMESPACE
