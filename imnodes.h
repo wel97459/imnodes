@@ -418,7 +418,7 @@ bool IsAnyAttributeActive(int* attribute_id = NULL);
 
 // Use the following functions to query a change of state for an existing link, or new link. Call
 // these after EndNodeEditor().
-
+bool IsPinHovered(int* const attr);
 // Did the user start dragging a new link from a pin?
 bool IsLinkStarted(int* started_at_attribute_id);
 // Did the user drop the dragged link before attaching it to a pin?
