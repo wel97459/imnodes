@@ -38,6 +38,7 @@ namespace IMNODES_NAMESPACE
 namespace
 {
 static bool SnapDifferentType = true;
+static bool PrintConnection = false;
 // [SECTION] bezier curve helpers
 struct CubicBezier
 {
@@ -1655,6 +1656,8 @@ void DrawLink(ImNodesEditorContext& editor, const int link_idx)
     const ImPinData&  start_pin = editor.Pins.Pool[link.StartPinIdx];
     const ImPinData&  end_pin = editor.Pins.Pool[link.EndPinIdx];
 
+    if(PrintConnection) printf("link: %i, %i, %i\n",link.Id, link.StartPinIdx, link.EndPinIdx);
+
     const CubicBezier cubic_bezier = GetCubicBezier(
         start_pin.Pos, end_pin.Pos, start_pin.Type, end_pin.Type, GImNodes->Style.LinkLineSegmentsPerLength);
         
@@ -1674,6 +1677,7 @@ void DrawLink(ImNodesEditorContext& editor, const int link_idx)
     // In other words, skip rendering the link if it was deleted.
     if (GImNodes->DeletedLinkIdx == link_idx)
     {
+        printf("GImNodes->DeletedLinkIdx\n");
         return;
     }
 
@@ -2433,10 +2437,10 @@ void EndNodeEditor()
 
     for (int link_idx = 0; link_idx < editor.Links.Pool.size(); ++link_idx)
     {
-        if (editor.Links.InUse[link_idx])
-        {
+        //if (editor.Links.InUse[link_idx])
+        //{
             DrawLink(editor, link_idx);
-        }
+        //}
     }
 
     // Render the click interaction UI elements (partial links, box selector) on top of everything
@@ -2984,8 +2988,21 @@ void GetSelectedLinks(int* link_ids)
     for (int i = 0; i < editor.SelectedLinkIndices.size(); ++i)
     {
         const int link_idx = editor.SelectedLinkIndices[i];
-        link_ids[i] = editor.Links.Pool[link_idx].Id;
+        link_ids[i] = link_idx;
     }
+}
+
+void GetSelectedLinksIdx(const int link_idx, int *start_node, int *start_pin, int *end_node, int *end_pin)
+{
+    const ImNodesEditorContext& editor = EditorContextGet();
+    const int ep = editor.Links.Pool[link_idx].StartPinIdx;
+    const int sp = editor.Links.Pool[link_idx].EndPinIdx;
+    const int en = editor.Pins.Pool[ep].ParentNodeIdx;
+
+    *start_node = editor.Links.Pool[link_idx].Id;
+    *start_pin = editor.Pins.Pool[sp].Id;
+    *end_node = editor.Nodes.Pool[en].Id;
+    *end_pin = editor.Pins.Pool[ep].Id;
 }
 
 void ClearNodeSelection()
@@ -3415,5 +3432,10 @@ void LoadEditorStateFromIniFile(ImNodesEditorContext* const editor, const char* 
 void setSnapDifferentType(const bool v)
 {
     SnapDifferentType = v;
+}
+
+void setPrintConnection(const bool v)
+{
+    PrintConnection = v;
 }
 } // namespace IMNODES_NAMESPACE

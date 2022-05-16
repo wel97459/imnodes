@@ -409,6 +409,7 @@ bool IsNodeSelected(int node_id);
 void SelectLink(int link_id);
 void ClearLinkSelection(int link_id);
 bool IsLinkSelected(int link_id);
+void GetSelectedLinksIdx(const int link_idx, int *start_node, int *start_pin, int *end_node, int *end_pin);
 
 // Was the previous attribute active? This will continuously return true while the left mouse button
 // is being pressed over the UI content of the attribute.
@@ -467,4 +468,5 @@ void SaveEditorStateToIniFile(const ImNodesEditorContext* editor, const char* fi
 void LoadCurrentEditorStateFromIniFile(const char* file_name);
 void LoadEditorStateFromIniFile(ImNodesEditorContext* editor, const char* file_name);
 void setSnapDifferentType(const bool v);
+void setPrintConnection(const bool v);
 } // namespace IMNODES_NAMESPACE
