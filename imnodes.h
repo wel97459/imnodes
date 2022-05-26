@@ -468,5 +468,4 @@ void SaveEditorStateToIniFile(const ImNodesEditorContext* editor, const char* fi
 void LoadCurrentEditorStateFromIniFile(const char* file_name);
 void LoadEditorStateFromIniFile(ImNodesEditorContext* editor, const char* file_name);
 void setSnapDifferentType(const bool v);
-void setPrintConnection(const bool v);
 } // namespace IMNODES_NAMESPACE
